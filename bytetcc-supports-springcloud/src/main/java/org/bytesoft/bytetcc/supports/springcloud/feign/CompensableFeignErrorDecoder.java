@@ -16,6 +16,7 @@
 package org.bytesoft.bytetcc.supports.springcloud.feign;
 
 import java.io.IOException;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.Map;
 
@@ -23,8 +24,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.bytesoft.bytejta.supports.rpc.TransactionResponseImpl;
 import org.bytesoft.bytejta.supports.wire.RemoteCoordinator;
 import org.bytesoft.bytetcc.supports.springcloud.SpringCloudBeanRegistry;
-import org.bytesoft.common.utils.ByteUtils;
-import org.bytesoft.common.utils.CommonUtils;
+import org.bytesoft.common.utils.SerializeUtils;
 import org.bytesoft.compensable.TransactionContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,8 +40,8 @@ import feign.codec.ErrorDecoder;
 public class CompensableFeignErrorDecoder implements feign.codec.ErrorDecoder, InitializingBean, ApplicationContextAware {
 	static Logger logger = LoggerFactory.getLogger(CompensableFeignErrorDecoder.class);
 
-	static final String HEADER_TRANCACTION_KEY = "org.bytesoft.bytetcc.transaction";
-	static final String HEADER_PROPAGATION_KEY = "org.bytesoft.bytetcc.propagation";
+	static final String HEADER_TRANCACTION_KEY = "X-BYTETCC-TRANSACTION"; // org.bytesoft.bytetcc.transaction
+	static final String HEADER_PROPAGATION_KEY = "X-BYTETCC-PROPAGATION"; // org.bytesoft.bytetcc.propagation
 
 	private ApplicationContext applicationContext;
 	private feign.codec.ErrorDecoder delegate;
@@ -102,8 +102,8 @@ public class CompensableFeignErrorDecoder implements feign.codec.ErrorDecoder, I
 			String transactionStr = StringUtils.isBlank(respTransactionStr) ? reqTransactionStr : respTransactionStr;
 			String propagationStr = StringUtils.isBlank(respPropagationStr) ? reqPropagationStr : respPropagationStr;
 
-			byte[] byteArray = ByteUtils.stringToByteArray(transactionStr);
-			TransactionContext transactionContext = (TransactionContext) CommonUtils.deserializeObject(byteArray);
+			byte[] byteArray = Base64.getDecoder().decode(transactionStr); // ByteUtils.stringToByteArray(transactionStr);
+			TransactionContext transactionContext = (TransactionContext) SerializeUtils.deserializeObject(byteArray);
 
 			SpringCloudBeanRegistry beanRegistry = SpringCloudBeanRegistry.getInstance();
 			RemoteCoordinator remoteCoordinator = beanRegistry.getConsumeCoordinator(propagationStr);
