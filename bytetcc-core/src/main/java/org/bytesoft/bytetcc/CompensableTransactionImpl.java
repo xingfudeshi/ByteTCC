@@ -38,7 +38,6 @@ import javax.transaction.xa.Xid;
 import org.apache.commons.lang3.StringUtils;
 import org.bytesoft.bytejta.supports.jdbc.RecoveredResource;
 import org.bytesoft.bytejta.supports.resource.RemoteResourceDescriptor;
-import org.bytesoft.bytejta.supports.wire.RemoteCoordinator;
 import org.bytesoft.bytetcc.supports.resource.LocalResourceCleaner;
 import org.bytesoft.common.utils.ByteUtils;
 import org.bytesoft.common.utils.CommonUtils;
@@ -53,8 +52,10 @@ import org.bytesoft.compensable.logging.CompensableLogger;
 import org.bytesoft.transaction.CommitRequiredException;
 import org.bytesoft.transaction.RollbackRequiredException;
 import org.bytesoft.transaction.Transaction;
+import org.bytesoft.transaction.TransactionParticipant;
 import org.bytesoft.transaction.TransactionRepository;
 import org.bytesoft.transaction.archive.XAResourceArchive;
+import org.bytesoft.transaction.remote.RemoteSvc;
 import org.bytesoft.transaction.supports.TransactionListener;
 import org.bytesoft.transaction.supports.TransactionListenerAdapter;
 import org.bytesoft.transaction.supports.TransactionResourceListener;
@@ -70,29 +71,28 @@ public class CompensableTransactionImpl extends TransactionListenerAdapter imple
 
 	private final TransactionContext transactionContext;
 	private final List<CompensableArchive> archiveList = new ArrayList<CompensableArchive>();
-	private final Map<String, XAResourceArchive> resourceMap = new HashMap<String, XAResourceArchive>();
+	private final Map<RemoteSvc, XAResourceArchive> resourceMap = new HashMap<RemoteSvc, XAResourceArchive>();
 	private final List<XAResourceArchive> resourceList = new ArrayList<XAResourceArchive>();
-	private final Map<String, XAResourceArchive> applicationMap = new HashMap<String, XAResourceArchive>();
-	private final Map<Thread, Transaction> transactionMap = new ConcurrentHashMap<Thread, Transaction>(4);
+	private final Map<Thread, Transaction> transactionMap = new ConcurrentHashMap<Thread, Transaction>();
 	private CompensableBeanFactory beanFactory;
 
 	private int transactionVote;
 	private int transactionStatus = Status.STATUS_ACTIVE;
-	/* current comensable-decision in confirm/cancel phase. */
+	/* current compensable-decision in confirm/cancel phase. */
 	private transient Boolean positive;
-	/* current compense-archive in confirm/cancel phase. */
+	/* current compensable-archive in confirm/cancel phase. */
 	private transient CompensableArchive archive;
 
 	/* current compensable-archive list in try phase. */
 	private transient final List<CompensableArchive> currentArchiveList = new ArrayList<CompensableArchive>();
 	private transient final Map<Xid, List<CompensableArchive>> archiveMap = new HashMap<Xid, List<CompensableArchive>>();
 
-	private boolean participantStickyRequired;
-
 	private Map<String, Serializable> variables = new HashMap<String, Serializable>();
 
 	private Thread currentThread;
 	private final Lock lock = new ReentrantLock();
+
+	private transient Exception createdAt;
 
 	public CompensableTransactionImpl(TransactionContext txContext) {
 		this.transactionContext = txContext;
@@ -393,7 +393,7 @@ public class CompensableTransactionImpl extends TransactionListenerAdapter imple
 						current.getDescriptor().getIdentifier(), rex);
 			} finally {
 				if (current.isCompleted()) {
-					transactionLogger.updateCoordinator(current);
+					transactionLogger.updateParticipant(current);
 				}
 			}
 		}
@@ -654,7 +654,7 @@ public class CompensableTransactionImpl extends TransactionListenerAdapter imple
 						ByteUtils.byteArrayToString(branchXid.getGlobalTransactionId()), current, rex);
 			} finally {
 				if (current.isCompleted()) {
-					transactionLogger.updateCoordinator(current);
+					transactionLogger.updateParticipant(current);
 				}
 			}
 		}
@@ -696,31 +696,31 @@ public class CompensableTransactionImpl extends TransactionListenerAdapter imple
 			throw new RollbackException(); // should never happen
 		}
 
-		String identifier = descriptor.getIdentifier();
+		TransactionParticipant transactionCoordinator = this.beanFactory.getCompensableNativeParticipant();
 
-		RemoteCoordinator transactionCoordinator = this.beanFactory.getCompensableCoordinator();
-		String self = transactionCoordinator.getIdentifier();
-		String parent = String.valueOf(this.transactionContext.getPropagatedBy());
-		boolean resourceValid = StringUtils.equalsIgnoreCase(identifier, self) == false
-				&& CommonUtils.instanceEquals(parent, identifier) == false;
+		RemoteSvc nativeSvc = CommonUtils.getRemoteSvc(transactionCoordinator.getIdentifier());
+		RemoteSvc parentSvc = CommonUtils.getRemoteSvc(String.valueOf(this.transactionContext.getPropagatedBy()));
+		RemoteSvc remoteSvc = descriptor.getRemoteSvc();
 
-		if (resourceValid == false) {
-			logger.warn("Endpoint {} can not be its own remote branch!", identifier);
+		boolean nativeFlag = StringUtils.equalsIgnoreCase(remoteSvc.getServiceKey(), nativeSvc.getServiceKey());
+		boolean parentFlag = StringUtils.equalsIgnoreCase(remoteSvc.getServiceKey(), parentSvc.getServiceKey());
+		if (nativeFlag || parentFlag) {
+			logger.warn("Endpoint {} can not be its own remote branch!", descriptor.getIdentifier());
 			return false;
 		} // end-if (resourceValid == false)
 
-		XAResourceArchive resourceArchive = this.resourceMap.get(identifier);
+		XAResourceArchive resourceArchive = this.resourceMap.get(remoteSvc);
 		if (resourceArchive == null) {
 			resourceArchive = new XAResourceArchive();
 			resourceArchive.setXid(branchXid);
 			resourceArchive.setDescriptor(descriptor);
 			this.resourceList.add(resourceArchive);
-			this.resourceMap.put(identifier, resourceArchive);
+			this.resourceMap.put(remoteSvc, resourceArchive);
 
-			compensableLogger.createCoordinator(resourceArchive);
+			compensableLogger.createParticipant(resourceArchive);
 
-			logger.info("{}| enlist remote resource: {}.", ByteUtils.byteArrayToString(globalXid.getGlobalTransactionId()),
-					identifier);
+			logger.info("{}| enlist remote resource: {}." //
+					, ByteUtils.byteArrayToString(globalXid.getGlobalTransactionId()), descriptor.getIdentifier());
 
 			return true;
 		} else {
@@ -730,38 +730,31 @@ public class CompensableTransactionImpl extends TransactionListenerAdapter imple
 	}
 
 	public boolean delistResource(XAResource xaRes, int flag) throws IllegalStateException, SystemException {
+		TransactionParticipant transactionCoordinator = this.beanFactory.getCompensableNativeParticipant();
 		CompensableLogger compensableLogger = this.beanFactory.getCompensableLogger();
 
 		if (RemoteResourceDescriptor.class.isInstance(xaRes)) {
 			RemoteResourceDescriptor descriptor = (RemoteResourceDescriptor) xaRes;
-			RemoteCoordinator resource = descriptor.getDelegate();
 
-			String identifier = descriptor.getIdentifier();
+			RemoteSvc nativeSvc = CommonUtils.getRemoteSvc(transactionCoordinator.getIdentifier());
+			RemoteSvc parentSvc = CommonUtils.getRemoteSvc(String.valueOf(this.transactionContext.getPropagatedBy()));
+			RemoteSvc remoteSvc = descriptor.getRemoteSvc();
 
-			RemoteCoordinator transactionCoordinator = this.beanFactory.getCompensableCoordinator();
-			String self = transactionCoordinator.getIdentifier();
-			String parent = String.valueOf(this.transactionContext.getPropagatedBy());
-
-			if (StringUtils.equalsIgnoreCase(identifier, self) || CommonUtils.instanceEquals(parent, identifier)) {
+			boolean nativeFlag = StringUtils.equalsIgnoreCase(remoteSvc.getServiceKey(), nativeSvc.getServiceKey());
+			boolean parentFlag = StringUtils.equalsIgnoreCase(remoteSvc.getServiceKey(), parentSvc.getServiceKey());
+			if (nativeFlag || parentFlag) {
 				return true;
 			}
 
-			XAResourceArchive archive = this.resourceMap.get(identifier);
 			if (flag == XAResource.TMFAIL) {
+				this.resourceMap.remove(remoteSvc);
 
-				this.resourceMap.remove(identifier);
-
+				XAResourceArchive archive = this.resourceMap.get(remoteSvc);
 				if (archive != null) {
 					this.resourceList.remove(archive);
 				} // end-if (archive != null)
 
 				compensableLogger.updateTransaction(this.getTransactionArchive());
-			} else {
-
-				if (archive != null) {
-					this.applicationMap.put(resource.getApplication(), archive);
-				} // end-if (archive != null)
-
 			}
 
 		} // end-if (RemoteResourceDescriptor.class.isInstance(xaRes))
@@ -833,7 +826,7 @@ public class CompensableTransactionImpl extends TransactionListenerAdapter imple
 
 		CompensableLogger compensableLogger = this.beanFactory.getCompensableLogger();
 		if (this.transactionContext.isCompensating()) {
-			this.archive.setCompensableXid(xid);
+			// this.archive.setCompensableXid(xid); // preset the compensable-xid.
 			this.archive.setCompensableResourceKey(resourceKey);
 			compensableLogger.updateCompensable(this.archive);
 		} else {
@@ -841,6 +834,11 @@ public class CompensableTransactionImpl extends TransactionListenerAdapter imple
 				CompensableArchive compensableArchive = this.currentArchiveList.get(i);
 				compensableArchive.setTransactionXid(xid);
 				compensableArchive.setTransactionResourceKey(resourceKey);
+
+				XidFactory transactionXidFactory = this.beanFactory.getTransactionXidFactory();
+				TransactionXid globalXid = transactionXidFactory.createGlobalXid(xid.getGlobalTransactionId());
+				TransactionXid branchXid = transactionXidFactory.createBranchXid(globalXid);
+				compensableArchive.setCompensableXid(branchXid); // preset the compensable-xid.
 
 				compensableLogger.createCompensable(compensableArchive);
 			}
@@ -1115,16 +1113,21 @@ public class CompensableTransactionImpl extends TransactionListenerAdapter imple
 
 	}
 
-	public XAResourceDescriptor getResourceDescriptor(String identifier) {
-		Transaction transaction = this.transactionMap.get(Thread.currentThread());
+	public XAResourceDescriptor getResourceDescriptor(String beanId) {
+		Transaction transaction = this.getTransaction();
+		return transaction.getResourceDescriptor(beanId);
+	}
+
+	public XAResourceDescriptor getRemoteCoordinator(RemoteSvc remoteSvc) {
+		Transaction transaction = this.getTransaction();
 
 		XAResourceDescriptor descriptor = null;
 		if (transaction != null) {
-			descriptor = transaction.getResourceDescriptor(identifier);
+			descriptor = transaction.getRemoteCoordinator(remoteSvc);
 		}
 
 		if (descriptor == null) {
-			XAResourceArchive archive = this.resourceMap.get(identifier);
+			XAResourceArchive archive = this.resourceMap.get(remoteSvc);
 			descriptor = archive == null ? descriptor : archive.getDescriptor();
 		}
 
@@ -1132,7 +1135,9 @@ public class CompensableTransactionImpl extends TransactionListenerAdapter imple
 	}
 
 	public XAResourceDescriptor getRemoteCoordinator(String application) {
-		XAResourceArchive archive = this.applicationMap.get(application);
+		RemoteSvc remoteSvc = new RemoteSvc();
+		remoteSvc.setServiceKey(application);
+		XAResourceArchive archive = this.resourceMap.get(remoteSvc);
 		return archive == null ? null : archive.getDescriptor();
 	}
 
@@ -1174,7 +1179,7 @@ public class CompensableTransactionImpl extends TransactionListenerAdapter imple
 	/**
 	 * only for recovery.
 	 */
-	public Map<String, XAResourceArchive> getParticipantArchiveMap() {
+	public Map<RemoteSvc, XAResourceArchive> getParticipantArchiveMap() {
 		return this.resourceMap;
 	}
 
@@ -1185,19 +1190,38 @@ public class CompensableTransactionImpl extends TransactionListenerAdapter imple
 		return this.resourceList;
 	}
 
-	/**
-	 * only for recovery.
-	 */
-	public Map<String, XAResourceArchive> getApplicationArchiveMap() {
-		return this.applicationMap;
+	public boolean isMarkedRollbackOnly() {
+		return this.transactionContext.isRollbackOnly();
 	}
 
-	public void setRollbackOnly() throws IllegalStateException, SystemException {
-		throw new IllegalStateException();
+	private synchronized void setTransactionRollbackOnlyQuietly() {
+		Transaction transactionalExtra = this.getTransaction();
+		if (transactionalExtra != null) {
+			transactionalExtra.setRollbackOnlyQuietly();
+		}
 	}
 
-	public void setRollbackOnlyQuietly() {
-		throw new IllegalStateException();
+	public synchronized void setRollbackOnly() throws IllegalStateException, SystemException {
+		if (this.transactionContext.isCompensating()) {
+			this.setTransactionRollbackOnlyQuietly();
+		} else if (this.transactionStatus == Status.STATUS_ACTIVE) {
+			this.transactionStatus = Status.STATUS_MARKED_ROLLBACK;
+			this.setTransactionRollbackOnlyQuietly();
+			this.transactionContext.setRollbackOnly(true);
+		} else if (this.transactionStatus == Status.STATUS_MARKED_ROLLBACK) {
+			this.setTransactionRollbackOnlyQuietly();
+			this.transactionContext.setRollbackOnly(true);
+		} else {
+			this.setTransactionRollbackOnlyQuietly();
+		}
+	}
+
+	public synchronized void setRollbackOnlyQuietly() {
+		try {
+			this.setRollbackOnly();
+		} catch (Exception ex) {
+			logger.debug(ex.getMessage(), ex);
+		}
 	}
 
 	public boolean isLocalTransaction() {
@@ -1244,14 +1268,6 @@ public class CompensableTransactionImpl extends TransactionListenerAdapter imple
 		this.variables.put(key, variable);
 	}
 
-	public boolean isParticipantStickyRequired() {
-		return participantStickyRequired;
-	}
-
-	public void setParticipantStickyRequired(boolean participantStickyRequired) {
-		this.participantStickyRequired = participantStickyRequired;
-	}
-
 	public Object getTransactionalExtra() {
 		return this.transactionMap.get(Thread.currentThread());
 	}
@@ -1266,6 +1282,14 @@ public class CompensableTransactionImpl extends TransactionListenerAdapter imple
 
 	public Transaction getTransaction() {
 		return (Transaction) this.getTransactionalExtra();
+	}
+
+	public Exception getCreatedAt() {
+		return createdAt;
+	}
+
+	public void setCreatedAt(Exception createdAt) {
+		this.createdAt = createdAt;
 	}
 
 	public int getTransactionVote() {

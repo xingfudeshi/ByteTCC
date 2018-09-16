@@ -24,12 +24,13 @@ import javax.transaction.xa.XAResource;
 import org.bytesoft.bytejta.supports.resource.RemoteResourceDescriptor;
 import org.bytesoft.bytejta.supports.rpc.TransactionRequestImpl;
 import org.bytesoft.bytejta.supports.rpc.TransactionResponseImpl;
-import org.bytesoft.bytejta.supports.wire.RemoteCoordinator;
 import org.bytesoft.compensable.CompensableBeanFactory;
 import org.bytesoft.compensable.CompensableManager;
 import org.bytesoft.compensable.CompensableTransaction;
 import org.bytesoft.compensable.aware.CompensableBeanFactoryAware;
 import org.bytesoft.transaction.TransactionContext;
+import org.bytesoft.transaction.TransactionParticipant;
+import org.bytesoft.transaction.remote.RemoteCoordinator;
 import org.bytesoft.transaction.supports.rpc.TransactionInterceptor;
 import org.bytesoft.transaction.supports.rpc.TransactionRequest;
 import org.bytesoft.transaction.supports.rpc.TransactionResponse;
@@ -91,7 +92,7 @@ public class CompensableInterceptorImpl implements TransactionInterceptor, Compe
 			return;
 		}
 
-		RemoteCoordinator compensableCoordinator = this.beanFactory.getCompensableCoordinator();
+		TransactionParticipant compensableCoordinator = this.beanFactory.getCompensableNativeParticipant();
 		TransactionContext transactionContext = srcTransactionContext.clone();
 		transactionContext.setPropagatedBy(srcTransactionContext.getPropagatedBy());
 		try {
@@ -112,7 +113,7 @@ public class CompensableInterceptorImpl implements TransactionInterceptor, Compe
 			return;
 		}
 
-		RemoteCoordinator compensableCoordinator = this.beanFactory.getCompensableCoordinator();
+		TransactionParticipant compensableCoordinator = this.beanFactory.getCompensableNativeParticipant();
 
 		TransactionContext srcTransactionContext = transaction.getTransactionContext();
 		TransactionContext transactionContext = srcTransactionContext.clone();

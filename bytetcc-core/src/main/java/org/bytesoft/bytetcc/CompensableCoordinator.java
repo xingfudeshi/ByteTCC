@@ -28,8 +28,8 @@ import javax.transaction.xa.XAException;
 import javax.transaction.xa.XAResource;
 import javax.transaction.xa.Xid;
 
-import org.bytesoft.bytejta.supports.wire.RemoteCoordinator;
 import org.bytesoft.common.utils.ByteUtils;
+import org.bytesoft.common.utils.CommonUtils;
 import org.bytesoft.compensable.CompensableBeanFactory;
 import org.bytesoft.compensable.CompensableManager;
 import org.bytesoft.compensable.CompensableTransaction;
@@ -40,6 +40,9 @@ import org.bytesoft.transaction.Transaction;
 import org.bytesoft.transaction.TransactionContext;
 import org.bytesoft.transaction.TransactionLock;
 import org.bytesoft.transaction.TransactionRepository;
+import org.bytesoft.transaction.remote.RemoteAddr;
+import org.bytesoft.transaction.remote.RemoteCoordinator;
+import org.bytesoft.transaction.remote.RemoteNode;
 import org.bytesoft.transaction.xa.TransactionXid;
 import org.bytesoft.transaction.xa.XidFactory;
 import org.slf4j.Logger;
@@ -197,6 +200,12 @@ public class CompensableCoordinator implements RemoteCoordinator, CompensableBea
 		CompensableTransaction transaction = (CompensableTransaction) compensableRepository.getTransaction(globalXid);
 		if (transaction == null) {
 			throw new XAException(XAException.XAER_NOTA);
+		}
+
+		TransactionContext transactionContext = transaction.getTransactionContext();
+		if (transactionContext.isRollbackOnly()) {
+			this.invokeRollback(globalXid);
+			throw new XAException(XAException.XA_HEURRB);
 		}
 
 		try {
@@ -414,12 +423,24 @@ public class CompensableCoordinator implements RemoteCoordinator, CompensableBea
 		this.endpoint = identifier;
 	}
 
+	public RemoteAddr getRemoteAddr() {
+		return CommonUtils.getRemoteAddr(this.endpoint);
+	}
+
+	public RemoteNode getRemoteNode() {
+		return CommonUtils.getRemoteNode(this.endpoint);
+	}
+
 	public String getIdentifier() {
 		return this.endpoint;
 	}
 
 	public String getApplication() {
 		return this.endpoint;
+	}
+
+	public CompensableBeanFactory getBeanFactory() {
+		return this.beanFactory;
 	}
 
 	public void setBeanFactory(CompensableBeanFactory tbf) {

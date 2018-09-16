@@ -19,11 +19,14 @@ import javax.transaction.xa.XAException;
 import javax.transaction.xa.XAResource;
 import javax.transaction.xa.Xid;
 
-import org.bytesoft.bytejta.supports.wire.RemoteCoordinator;
 import org.bytesoft.compensable.CompensableBeanFactory;
 import org.bytesoft.compensable.aware.CompensableBeanFactoryAware;
 import org.bytesoft.transaction.Transaction;
 import org.bytesoft.transaction.TransactionContext;
+import org.bytesoft.transaction.TransactionParticipant;
+import org.bytesoft.transaction.remote.RemoteAddr;
+import org.bytesoft.transaction.remote.RemoteCoordinator;
+import org.bytesoft.transaction.remote.RemoteNode;
 import org.bytesoft.transaction.xa.XidFactory;
 
 public class TransactionCoordinator implements RemoteCoordinator, CompensableBeanFactoryAware {
@@ -32,8 +35,8 @@ public class TransactionCoordinator implements RemoteCoordinator, CompensableBea
 	private CompensableBeanFactory beanFactory;
 
 	public int prepare(Xid xid) throws XAException {
-		RemoteCoordinator compensableCoordinator = this.beanFactory.getCompensableCoordinator();
-		RemoteCoordinator transactionCoordinator = this.beanFactory.getTransactionCoordinator();
+		TransactionParticipant compensableCoordinator = this.beanFactory.getCompensableNativeParticipant();
+		TransactionParticipant transactionCoordinator = this.beanFactory.getTransactionNativeParticipant();
 
 		int formatId = xid.getFormatId();
 		if (XidFactory.JTA_FORMAT_ID == formatId) {
@@ -46,8 +49,8 @@ public class TransactionCoordinator implements RemoteCoordinator, CompensableBea
 	}
 
 	public void commit(Xid xid, boolean onePhase) throws XAException {
-		RemoteCoordinator compensableCoordinator = this.beanFactory.getCompensableCoordinator();
-		RemoteCoordinator transactionCoordinator = this.beanFactory.getTransactionCoordinator();
+		TransactionParticipant compensableCoordinator = this.beanFactory.getCompensableNativeParticipant();
+		TransactionParticipant transactionCoordinator = this.beanFactory.getTransactionNativeParticipant();
 
 		int formatId = xid.getFormatId();
 		if (XidFactory.JTA_FORMAT_ID == formatId) {
@@ -60,8 +63,8 @@ public class TransactionCoordinator implements RemoteCoordinator, CompensableBea
 	}
 
 	public void rollback(Xid xid) throws XAException {
-		RemoteCoordinator compensableCoordinator = this.beanFactory.getCompensableCoordinator();
-		RemoteCoordinator transactionCoordinator = this.beanFactory.getTransactionCoordinator();
+		TransactionParticipant compensableCoordinator = this.beanFactory.getCompensableNativeParticipant();
+		TransactionParticipant transactionCoordinator = this.beanFactory.getTransactionNativeParticipant();
 
 		int formatId = xid.getFormatId();
 		if (XidFactory.JTA_FORMAT_ID == formatId) {
@@ -74,8 +77,8 @@ public class TransactionCoordinator implements RemoteCoordinator, CompensableBea
 	}
 
 	public Xid[] recover(int flags) throws XAException {
-		RemoteCoordinator compensableCoordinator = this.beanFactory.getCompensableCoordinator();
-		RemoteCoordinator transactionCoordinator = this.beanFactory.getTransactionCoordinator();
+		TransactionParticipant compensableCoordinator = this.beanFactory.getCompensableNativeParticipant();
+		TransactionParticipant transactionCoordinator = this.beanFactory.getTransactionNativeParticipant();
 
 		Xid[] jtaXidArray = null;
 		try {
@@ -98,8 +101,8 @@ public class TransactionCoordinator implements RemoteCoordinator, CompensableBea
 	}
 
 	public void forget(Xid xid) throws XAException {
-		RemoteCoordinator compensableCoordinator = this.beanFactory.getCompensableCoordinator();
-		RemoteCoordinator transactionCoordinator = this.beanFactory.getTransactionCoordinator();
+		TransactionParticipant compensableCoordinator = this.beanFactory.getCompensableNativeParticipant();
+		TransactionParticipant transactionCoordinator = this.beanFactory.getTransactionNativeParticipant();
 
 		int formatId = xid.getFormatId();
 		if (XidFactory.JTA_FORMAT_ID == formatId) {
@@ -112,8 +115,8 @@ public class TransactionCoordinator implements RemoteCoordinator, CompensableBea
 	}
 
 	public void forgetQuietly(Xid xid) {
-		RemoteCoordinator compensableCoordinator = this.beanFactory.getCompensableCoordinator();
-		RemoteCoordinator transactionCoordinator = this.beanFactory.getTransactionCoordinator();
+		TransactionParticipant compensableCoordinator = this.beanFactory.getCompensableNativeParticipant();
+		TransactionParticipant transactionCoordinator = this.beanFactory.getTransactionNativeParticipant();
 
 		int formatId = xid.getFormatId();
 		if (XidFactory.JTA_FORMAT_ID == formatId) {
@@ -123,12 +126,20 @@ public class TransactionCoordinator implements RemoteCoordinator, CompensableBea
 		}
 	}
 
+	public RemoteAddr getRemoteAddr() {
+		return ((RemoteCoordinator) this.beanFactory.getCompensableNativeParticipant()).getRemoteAddr();
+	}
+
+	public RemoteNode getRemoteNode() {
+		return ((RemoteCoordinator) this.beanFactory.getCompensableNativeParticipant()).getRemoteNode();
+	}
+
 	public String getApplication() {
-		return this.beanFactory.getCompensableCoordinator().getApplication();
+		return ((RemoteCoordinator) this.beanFactory.getCompensableNativeParticipant()).getApplication();
 	}
 
 	public String getIdentifier() {
-		throw new IllegalStateException();
+		return this.beanFactory.getCompensableNativeParticipant().getIdentifier();
 	}
 
 	public void start(Xid xid, int flags) throws XAException {
@@ -157,6 +168,10 @@ public class TransactionCoordinator implements RemoteCoordinator, CompensableBea
 
 	public int getTransactionTimeout() throws XAException {
 		throw new XAException(XAException.XAER_RMERR);
+	}
+
+	public CompensableBeanFactory getBeanFactory() {
+		return this.beanFactory;
 	}
 
 	public void setBeanFactory(CompensableBeanFactory tbf) {

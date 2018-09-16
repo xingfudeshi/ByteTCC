@@ -23,18 +23,18 @@ import java.util.Map;
 
 import org.apache.commons.lang3.StringUtils;
 import org.bytesoft.bytejta.supports.rpc.TransactionResponseImpl;
-import org.bytesoft.bytejta.supports.wire.RemoteCoordinator;
 import org.bytesoft.bytetcc.supports.springcloud.SpringCloudBeanRegistry;
 import org.bytesoft.common.utils.SerializeUtils;
 import org.bytesoft.compensable.TransactionContext;
+import org.bytesoft.transaction.remote.RemoteCoordinator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.ObjectFactory;
 import org.springframework.boot.autoconfigure.http.HttpMessageConverters;
-import org.springframework.cloud.netflix.feign.support.ResponseEntityDecoder;
-import org.springframework.cloud.netflix.feign.support.SpringDecoder;
+import org.springframework.cloud.openfeign.support.ResponseEntityDecoder;
+import org.springframework.cloud.openfeign.support.SpringDecoder;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextAware;
 

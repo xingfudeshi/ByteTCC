@@ -13,7 +13,7 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this distribution; if not, see <http://www.gnu.org/licenses/>.
  */
-package org.bytesoft.bytetcc.work;
+package org.bytesoft.bytetcc.work.vfs;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -43,7 +43,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class CleanupWork implements Work, LocalResourceCleaner, CompensableEndpointAware, CompensableBeanFactoryAware {
-	static final Logger logger = LoggerFactory.getLogger(CompensableWork.class);
+	static final Logger logger = LoggerFactory.getLogger(CleanupWork.class);
 	static final byte[] IDENTIFIER = "org.bytesoft.bytetcc.resource.cleanup".getBytes();
 
 	static final long SECOND_MILLIS = 1000L;
@@ -299,6 +299,10 @@ public class CleanupWork implements Work, LocalResourceCleaner, CompensableEndpo
 
 	public void setEndpoint(String identifier) {
 		this.endpoint = identifier;
+	}
+
+	public CompensableBeanFactory getBeanFactory() {
+		return this.beanFactory;
 	}
 
 	public void setBeanFactory(CompensableBeanFactory tbf) {

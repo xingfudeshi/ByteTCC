@@ -13,7 +13,7 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this distribution; if not, see <http://www.gnu.org/licenses/>.
  */
-package org.bytesoft.bytetcc.work;
+package org.bytesoft.bytetcc.work.vfs;
 
 import java.io.Closeable;
 import java.io.File;
@@ -581,6 +581,10 @@ public class CleanupFile implements CompensableEndpointAware, CompensableBeanFac
 
 	public Map<String, Set<CleanupRecord>> getRecordMap() {
 		return recordMap;
+	}
+
+	public CompensableBeanFactory getBeanFactory() {
+		return this.beanFactory;
 	}
 
 	public void setBeanFactory(CompensableBeanFactory tbf) {

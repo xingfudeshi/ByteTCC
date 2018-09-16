@@ -28,7 +28,6 @@ import javax.transaction.SystemException;
 import javax.transaction.xa.XAException;
 import javax.transaction.xa.XAResource;
 
-import org.bytesoft.bytejta.supports.wire.RemoteCoordinator;
 import org.bytesoft.bytetcc.supports.CompensableSynchronization;
 import org.bytesoft.common.utils.ByteUtils;
 import org.bytesoft.compensable.CompensableBeanFactory;
@@ -41,6 +40,7 @@ import org.bytesoft.compensable.logging.CompensableLogger;
 import org.bytesoft.transaction.Transaction;
 import org.bytesoft.transaction.TransactionLock;
 import org.bytesoft.transaction.TransactionManager;
+import org.bytesoft.transaction.TransactionParticipant;
 import org.bytesoft.transaction.TransactionRepository;
 import org.bytesoft.transaction.xa.TransactionXid;
 import org.bytesoft.transaction.xa.XidFactory;
@@ -148,7 +148,7 @@ public class CompensableManagerImpl implements CompensableManager, CompensableBe
 
 	protected void invokeBegin(TransactionContext transactionContext, boolean createFlag)
 			throws NotSupportedException, SystemException {
-		RemoteCoordinator transactionCoordinator = this.beanFactory.getTransactionCoordinator();
+		TransactionParticipant transactionCoordinator = this.beanFactory.getTransactionNativeParticipant();
 
 		CompensableTransaction compensable = this.getCompensableTransactionQuietly();
 		TransactionContext compensableContext = compensable.getTransactionContext();
@@ -179,7 +179,7 @@ public class CompensableManagerImpl implements CompensableManager, CompensableBe
 	}
 
 	protected void invokeRollbackInBegin(TransactionContext transactionContext) throws NotSupportedException, SystemException {
-		RemoteCoordinator transactionCoordinator = this.beanFactory.getTransactionCoordinator();
+		TransactionParticipant transactionCoordinator = this.beanFactory.getTransactionNativeParticipant();
 
 		CompensableTransaction compensable = this.getCompensableTransactionQuietly();
 		TransactionContext compensableContext = compensable.getTransactionContext();
@@ -204,7 +204,7 @@ public class CompensableManagerImpl implements CompensableManager, CompensableBe
 		CompensableLogger compensableLogger = this.beanFactory.getCompensableLogger();
 		TransactionLock compensableLock = this.beanFactory.getCompensableLock();
 		TransactionRepository compensableRepository = this.beanFactory.getCompensableRepository();
-		RemoteCoordinator compensableCoordinator = this.beanFactory.getCompensableCoordinator();
+		TransactionParticipant compensableCoordinator = this.beanFactory.getCompensableNativeParticipant();
 
 		XidFactory transactionXidFactory = this.beanFactory.getTransactionXidFactory();
 		XidFactory compensableXidFactory = this.beanFactory.getCompensableXidFactory();
@@ -304,7 +304,7 @@ public class CompensableManagerImpl implements CompensableManager, CompensableBe
 
 		Transaction transaction = compensable.getTransaction();
 		org.bytesoft.transaction.TransactionContext transactionContext = transaction.getTransactionContext();
-		RemoteCoordinator transactionCoordinator = this.beanFactory.getTransactionCoordinator();
+		TransactionParticipant transactionCoordinator = this.beanFactory.getTransactionNativeParticipant();
 
 		TransactionXid transactionXid = transactionContext.getXid();
 		try {
@@ -341,7 +341,7 @@ public class CompensableManagerImpl implements CompensableManager, CompensableBe
 
 		Transaction transaction = compensable.getTransaction();
 		org.bytesoft.transaction.TransactionContext transactionContext = transaction.getTransactionContext();
-		RemoteCoordinator transactionCoordinator = this.beanFactory.getTransactionCoordinator();
+		TransactionParticipant transactionCoordinator = this.beanFactory.getTransactionNativeParticipant();
 
 		TransactionXid transactionXid = transactionContext.getXid();
 		try {
@@ -405,7 +405,7 @@ public class CompensableManagerImpl implements CompensableManager, CompensableBe
 
 		Transaction transaction = compensable.getTransaction();
 		org.bytesoft.transaction.TransactionContext transactionContext = transaction.getTransactionContext();
-		RemoteCoordinator transactionCoordinator = this.beanFactory.getTransactionCoordinator();
+		TransactionParticipant transactionCoordinator = this.beanFactory.getTransactionNativeParticipant();
 
 		TransactionXid transactionXid = transactionContext.getXid();
 		try {
@@ -453,6 +453,9 @@ public class CompensableManagerImpl implements CompensableManager, CompensableBe
 			throw new IllegalStateException();
 		} else if (compensating) {
 			throw new IllegalStateException();
+		} else if (transactionContext.isRollbackOnly()) {
+			this.compensableRollback();
+			throw new HeuristicRollbackException();
 		}
 
 		TransactionLock compensableLock = this.beanFactory.getCompensableLock();
@@ -530,7 +533,7 @@ public class CompensableManagerImpl implements CompensableManager, CompensableBe
 	protected void invokeCompensableCommitIfLocalTransaction(CompensableTransaction compensable)
 			throws HeuristicRollbackException, SystemException {
 
-		RemoteCoordinator transactionCoordinator = this.beanFactory.getTransactionCoordinator();
+		TransactionParticipant transactionCoordinator = this.beanFactory.getTransactionNativeParticipant();
 		Transaction transaction = compensable.getTransaction();
 		org.bytesoft.transaction.TransactionContext transactionContext = transaction.getTransactionContext();
 
@@ -560,7 +563,7 @@ public class CompensableManagerImpl implements CompensableManager, CompensableBe
 	protected void invokeCompensableCommitIfNotLocalTransaction(CompensableTransaction compensable)
 			throws HeuristicRollbackException, SystemException {
 
-		RemoteCoordinator transactionCoordinator = this.beanFactory.getTransactionCoordinator();
+		TransactionParticipant transactionCoordinator = this.beanFactory.getTransactionNativeParticipant();
 		Transaction transaction = compensable.getTransaction();
 		org.bytesoft.transaction.TransactionContext transactionContext = transaction.getTransactionContext();
 
@@ -620,7 +623,7 @@ public class CompensableManagerImpl implements CompensableManager, CompensableBe
 			throws IllegalStateException, SecurityException, SystemException {
 
 		TransactionRepository compensableRepository = this.beanFactory.getCompensableRepository();
-		RemoteCoordinator transactionCoordinator = this.beanFactory.getTransactionCoordinator();
+		TransactionParticipant transactionCoordinator = this.beanFactory.getTransactionNativeParticipant();
 
 		Transaction transaction = compensable.getTransaction();
 		org.bytesoft.compensable.TransactionContext compensableContext = compensable.getTransactionContext();
@@ -650,7 +653,19 @@ public class CompensableManagerImpl implements CompensableManager, CompensableBe
 
 	}
 
+	public void setRollbackOnlyQuietly() {
+		CompensableTransaction transaction = this.getCompensableTransactionQuietly();
+		if (transaction != null) {
+			transaction.setRollbackOnlyQuietly();
+		}
+	}
+
 	public void setRollbackOnly() throws IllegalStateException, SystemException {
+		CompensableTransaction transaction = this.getCompensableTransactionQuietly();
+		if (transaction == null) {
+			throw new IllegalStateException();
+		}
+		transaction.setRollbackOnlyQuietly();
 	}
 
 	public void setTransactionTimeout(int seconds) throws SystemException {
@@ -661,6 +676,10 @@ public class CompensableManagerImpl implements CompensableManager, CompensableBe
 	}
 
 	public void setTimeoutSeconds(int timeoutSeconds) {
+	}
+
+	public CompensableBeanFactory getBeanFactory() {
+		return this.beanFactory;
 	}
 
 	public void setBeanFactory(CompensableBeanFactory tbf) {

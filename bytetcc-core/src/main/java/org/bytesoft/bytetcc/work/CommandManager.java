@@ -1,5 +1,5 @@
 /**
- * Copyright 2014-2016 yangming.liu<bytefox@126.com>.
+ * Copyright 2014-2018 yangming.liu<bytefox@126.com>.
  *
  * This copyrighted material is made available to anyone wishing to use, modify,
  * copy, or redistribute it subject to the terms and conditions of the GNU
@@ -13,15 +13,14 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this distribution; if not, see <http://www.gnu.org/licenses/>.
  */
-package org.bytesoft.compensable.aware;
+package org.bytesoft.bytetcc.work;
 
-import org.bytesoft.compensable.CompensableBeanFactory;
+import java.util.concurrent.Callable;
 
-public interface CompensableBeanFactoryAware {
-	public static final String BEAN_FACTORY_FIELD_NAME = "beanFactory";
+public interface CommandManager {
 
-	public CompensableBeanFactory getBeanFactory();
+	public <T> T execute(Callable<T> callable) throws Exception;
 
-	public void setBeanFactory(CompensableBeanFactory tbf);
+	public void execute(Runnable runnable) throws Exception;
 
 }
